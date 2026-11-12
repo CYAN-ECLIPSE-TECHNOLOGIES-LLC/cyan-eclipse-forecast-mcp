@@ -331,11 +331,215 @@ FORBIDDEN_TOOL_NAMES = {
 }
 
 
+TITLES = {
+    "forecast_sync": "Sync Polymarket Fixture Set into Book Core",
+    "market_list": "List Polymarket Global Markets",
+    "market_get": "Get One Polymarket Market with Criteria",
+    "book_get": "Get Market Outcome Order Book",
+    "quote_get": "Price a Market Outcome at a Size",
+    "resolution_get": "Get Market Resolution Record",
+    "venue_status": "Polymarket Adapter Status",
+    "receipt_list": "List Shared Suite Ledger Receipts",
+}
+
+_READ = {"readOnlyHint": True, "destructiveHint": False,
+         "idempotentHint": True, "openWorldHint": False}
+ANNOTATIONS = {
+    "forecast_sync": {"readOnlyHint": False, "destructiveHint": False,
+                      "idempotentHint": True, "openWorldHint": False},
+    "market_list": dict(_READ), "market_get": dict(_READ),
+    "book_get": dict(_READ), "quote_get": dict(_READ),
+    "resolution_get": dict(_READ), "venue_status": dict(_READ),
+    "receipt_list": dict(_READ),
+}
+
+_S = {"type": "string"}
+_SN = {"type": ["string", "null"]}
+_MC = {"type": "string", "enum": ["REAL"],
+       "description": "Money class of the data: Polymarket venue data is real-money data, so every output is labelled REAL even though this adapter moves no money."}
+_LEVEL = {"type": "object",
+          "properties": {"price": _S, "size": _S},
+          "required": ["price", "size"]}
+_DEPTH = {"type": "object",
+          "properties": {
+              "size_at_best_bid": _S, "size_at_best_ask": _S,
+              "notional_at_best_ask": _S,
+              "size_within_5_ticks_bid": _S,
+              "size_within_5_ticks_ask": _S},
+          "required": ["size_at_best_bid", "size_at_best_ask",
+                       "notional_at_best_ask", "size_within_5_ticks_bid",
+                       "size_within_5_ticks_ask"]}
+_RESOLUTION = {"type": "object",
+               "properties": {
+                   "state": _S, "outcome": _SN, "source": _SN,
+                   "evidence_ref": _SN,
+                   "criteria_match": {"type": ["boolean", "null"]},
+                   "history": {"type": "array", "items": {"type": "object"}}},
+               "required": ["state", "outcome", "source", "evidence_ref",
+                            "criteria_match", "history"]}
+_INSTRUMENT = {"type": "object",
+               "properties": {
+                   "instrument_id": _S, "venue": _S, "native_id": _S,
+                   "native_symbol": _SN, "kind": _S, "title": _S,
+                   "underlying": _SN,
+                   "outcomes": {"type": "array", "items": _S},
+                   "resolution_source": _SN,
+                   "trading_window": {
+                       "type": "object",
+                       "properties": {"open": _SN, "close": _SN}},
+                   "tick": _SN, "min_size": _SN, "currency": _S,
+                   "money_class": _S, "status": _S, "native_status": _SN,
+                   "provenance": {"type": "object"},
+                   "resolution": _RESOLUTION,
+                   "resolution_criteria": _S,
+                   "resolution_criteria_source_ref": _SN,
+                   "criteria_versions": {
+                       "type": "array",
+                       "items": {"type": "object",
+                                 "properties": {"hash": _S, "text": _S,
+                                                "source_ref": _SN,
+                                                "first_seen": _S},
+                                 "required": ["hash", "text", "first_seen"]}}},
+               "required": ["instrument_id", "venue", "native_id", "kind",
+                            "title", "outcomes", "currency", "money_class",
+                            "status", "provenance", "resolution",
+                            "resolution_criteria", "criteria_versions"]}
+_BOOK = {"type": "object",
+         "properties": {
+             "instrument_id": _S, "venue": _S, "as_of": _S,
+             "book_type": _S,
+             "bids": {"type": "array", "items": _LEVEL},
+             "asks": {"type": "array", "items": _LEVEL},
+             "native_ref": _SN, "outcome": _S,
+             "depth_summary": _DEPTH, "spread_bps": _SN},
+         "required": ["instrument_id", "venue", "as_of", "book_type",
+                      "bids", "asks", "native_ref", "outcome",
+                      "depth_summary", "spread_bps"]}
+_COST = {"type": "object",
+         "properties": {"total": _S, "per_unit": _S, "fee_amount": _S,
+                        "fee_schedule_ref": _S},
+         "required": ["total", "per_unit", "fee_amount", "fee_schedule_ref"]}
+_COST_OR_UNVERIFIED = {"anyOf": [_COST, {"type": "string",
+                                         "enum": ["FEE_UNVERIFIED"]}]}
+_QUOTE = {"type": "object",
+          "properties": {
+              "instrument_id": _S, "venue": _S, "outcome": _S, "as_of": _S,
+              "book_as_of": _S, "bid": _S, "ask": _S, "mid": _S,
+              "mid_basis": _S, "spread_bps": _SN, "size": _S,
+              "currency": _S, "money_class": _S, "liquidity_flag": _S,
+              "depth_summary": _DEPTH, "fee_status": _S,
+              "fee_schedule_ref": _SN, "book_stale": {"type": "boolean"},
+              "all_in_buy_cost": _COST_OR_UNVERIFIED,
+              "all_in_sell_value": _COST_OR_UNVERIFIED,
+              "settlement_fee_model": {"type": "object"},
+              "max_payout_for_size": _S,
+              "resolution_criteria": _S, "resolution_criteria_hash": _S,
+              "resolution_source": _SN},
+          "required": ["instrument_id", "venue", "outcome", "as_of",
+                       "book_as_of", "bid", "ask", "mid", "spread_bps",
+                       "size", "currency", "money_class", "liquidity_flag",
+                       "depth_summary", "fee_status", "fee_schedule_ref",
+                       "book_stale", "all_in_buy_cost", "all_in_sell_value",
+                       "resolution_criteria", "resolution_criteria_hash",
+                       "resolution_source"]}
+_RECEIPT = {"type": "object",
+            "properties": {
+                "seq": {"type": "integer"}, "ts": _S, "type": _S,
+                "prev_hash": _S, "detail": {"type": "object"}, "hash": _S},
+            "required": ["seq", "ts", "type", "prev_hash", "detail", "hash"]}
+
+OUTPUT_SCHEMAS = {
+    "forecast_sync": {
+        "type": "object",
+        "properties": {
+            "synced": {"type": "array", "items": _S},
+            "count": {"type": "integer"},
+            "already_synced": {"type": "boolean",
+                               "description": "Present and true only when the set was already synced; absent on a first sync."},
+            "criteria_changed_events": {
+                "type": "array",
+                "items": {"type": "object",
+                          "properties": {"type": _S, "instrument_id": _S,
+                                         "old_hash": _S, "new_hash": _S},
+                          "required": ["type", "instrument_id", "old_hash",
+                                       "new_hash"]}},
+            "money_class": _MC},
+        "required": ["synced", "count", "criteria_changed_events",
+                     "money_class"]},
+    "market_list": {
+        "type": "object",
+        "properties": {
+            "markets": {"type": "array", "items": {
+                "type": "object",
+                "properties": {"instrument_id": _S, "title": _S,
+                               "status": _S, "native_status": _S,
+                               "money_class": _S, "resolution_source": _SN},
+                "required": ["instrument_id", "title", "status",
+                             "native_status", "money_class",
+                             "resolution_source"]}},
+            "count": {"type": "integer"}, "money_class": _MC},
+        "required": ["markets", "count", "money_class"]},
+    "market_get": {
+        "type": "object",
+        "properties": {"market": _INSTRUMENT, "money_class": _MC},
+        "required": ["market", "money_class"]},
+    "book_get": {
+        "type": "object",
+        "properties": {"book": _BOOK, "money_class": _MC},
+        "required": ["book", "money_class"]},
+    "quote_get": {
+        "type": "object",
+        "properties": {"quote": _QUOTE, "money_class": _MC},
+        "required": ["quote", "money_class"]},
+    "resolution_get": {
+        "type": "object",
+        "properties": {
+            "resolution": {"type": "object",
+                           "properties": {
+                               "instrument_id": _S, "state": _S,
+                               "verification": _S, "outcome": _SN,
+                               "source": _SN, "named_resolution_source": _SN,
+                               "evidence_ref": _SN,
+                               "criteria_match": {"type": ["boolean", "null"]},
+                               "history": {"type": "array",
+                                           "items": {"type": "object"}}},
+                           "required": ["instrument_id", "state",
+                                        "verification", "outcome", "source",
+                                        "named_resolution_source",
+                                        "evidence_ref", "criteria_match",
+                                        "history"]},
+            "money_class": _MC},
+        "required": ["resolution", "money_class"]},
+    "venue_status": {
+        "type": "object",
+        "properties": {
+            "venue": _S, "as_of": _S, "capability": _S, "order_tools": _S,
+            "account_tools": _S, "instruments": {"type": "integer"},
+            "fee_schedule_ref": _SN, "fee_status": _S,
+            "chain_valid": {"type": "boolean"}, "transport": _S,
+            "us_trading_surface": _S},
+        "required": ["venue", "as_of", "capability", "order_tools",
+                     "account_tools", "instruments", "fee_schedule_ref",
+                     "fee_status", "chain_valid", "transport",
+                     "us_trading_surface"]},
+    "receipt_list": {
+        "type": "object",
+        "properties": {
+            "receipts": {"type": "array", "items": _RECEIPT},
+            "count": {"type": "integer"},
+            "chain_valid": {"type": "boolean"}, "money_class": _MC},
+        "required": ["receipts", "count", "chain_valid", "money_class"]},
+}
+
 def tool_list():
-    return [{"name": name, "description": description,
+    return [{"name": name, "title": TITLES[name], "description": description,
              "inputSchema": {"type": "object", "properties": props,
-                             "required": required}}
+                             "required": required},
+             "outputSchema": OUTPUT_SCHEMAS[name],
+             "annotations": dict(ANNOTATIONS[name],
+                                 title=TITLES[name])}
             for name, (_, description, props, required) in TOOLS.items()]
+
 
 
 def handle(req: dict):
