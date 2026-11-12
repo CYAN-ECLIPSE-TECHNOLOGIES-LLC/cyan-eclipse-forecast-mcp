@@ -275,61 +275,48 @@ def t_receipt_list(state, args):
             "money_class": MONEY_CLASS}
 
 
+_P_INSTRUMENT = {"type": "string", "description": "Canonical instrument id as returned by market_list or forecast_sync, e.g. 'B:polymarket_global:cond-fed-dec-2026'. Must belong to the Polymarket Global venue; other venues' ids fail with MARKET_NOT_FOUND."}
+_P_OUTCOME = {"type": "string", "description": "Outcome label exactly as it appears in the market's outcomes array, e.g. 'Yes' or 'No'. Defaults to 'Yes' when omitted."}
+_P_AS_OF = {"type": "string", "description": "Optional ISO-8601 timestamp used for fee-schedule freshness evaluation, e.g. '2026-10-25T13:00:00Z'. Omit to evaluate against the fixture clock."}
+
 TOOLS = {
     "forecast_sync": (
         t_forecast_sync,
-        "T0/T1. Sync the fixture set (base | edited) through "
-        "the transport seam into the shared Book core state: "
-        "Gamma-shaped markets -> canonical Instruments (criteria "
-        "verbatim + hash-pinned), CLOB-shaped books -> canonical "
-        "Books, UMA-shaped resolutions -> Resolution records. "
-        "Returns any CRITERIA_CHANGED events by name.",
-        {"fixture_set": {"type": "string"}}, []),
+        "Sync a Polymarket fixture set into the shared Eclipse Book core state: Gamma-shaped markets become canonical Instruments (resolution criteria verbatim and hash-pinned), CLOB-shaped books become canonical Books, and resolution fixtures become Resolution records. Use this to load the 'edited' criteria-change set explicitly; do NOT use it for live venue data — this build reads fixture files only, makes no network calls, and needs no API key or account. Behaviour: mutating but idempotent — it writes the shared Book state file, and re-syncing the same set is a no-op that reports already_synced. Every other tool in this server auto-syncs the 'base' set, so an explicit sync is only needed for 'edited'. Returns {synced: [instrument_id], count, already_synced, criteria_changed_events: [...], money_class: 'REAL'}; criteria_changed_events names every market whose criteria text changed versus the pinned version.",
+        {"fixture_set": {"type": "string", "description": "Fixture set to load: 'base' (default) or 'edited' (the criteria-change scenario set). Any other value fails because its fixture file does not exist."}}, []),
     "market_list": (
         t_market_list,
-        "T0. Polymarket Global markets as canonical Instruments "
-        "(status + native status + named resolution source). "
-        "Data only — no trading surface exists (spec 4.2/8.2).",
+        "List Polymarket Global markets as canonical Instruments with mapped status, preserved native status, and the named resolution source for each market. Use this first to discover instrument_id values for market_get, book_get, quote_get, and resolution_get; do NOT use it when you need one market's full criteria text — use market_get instead. Behaviour: read-only over fixture data shaped like the Polymarket Gamma public API; no network calls, no auth, no trading surface exists in this server at all. Auto-syncs the 'base' fixture set on first call. Returns {markets: [{instrument_id, title, status, native_status, money_class, resolution_source}], count, money_class: 'REAL'}.",
         {}, []),
     "market_get": (
         t_market_get,
-        "T0. One market with its verbatim resolution criteria, "
-        "criteria version history, and resolution state.",
-        {"instrument_id": {"type": "string"}}, ["instrument_id"]),
+        "Fetch one Polymarket Global market's full canonical Instrument, including its verbatim resolution criteria, criteria version history, and current resolution state. Use this when the exact settlement wording matters; use market_list to browse or discover ids, book_get for order-book depth, and resolution_get for only the resolution record. Behaviour: read-only, fixture data only, no auth. Returns {market: <instrument with criteria and history>, money_class: 'REAL'}; an unknown or non-Polymarket instrument_id fails with MARKET_NOT_FOUND.",
+        {"instrument_id": _P_INSTRUMENT}, ["instrument_id"]),
     "book_get": (
         t_book_get,
-        "T0. The canonical CLOB Book for one market outcome: "
-        "levels, computed spread, depth summary (liquidity "
-        "honesty, spec 5.5).",
-        {"instrument_id": {"type": "string"},
-         "outcome": {"type": "string"}},
+        "Fetch the canonical order book for one outcome of one Polymarket Global market: price levels, computed spread, and a depth summary. Use this to judge liquidity before quoting; use quote_get instead when you need the all-in cost at a specific size, and market_get for criteria. Behaviour: read-only, fixture data shaped like the Polymarket CLOB public API, no auth. Returns {book: <levels, spread, depth summary>, money_class: 'REAL'}.",
+        {"instrument_id": _P_INSTRUMENT,
+         "outcome": _P_OUTCOME},
         ["instrument_id"]),
     "quote_get": (
         t_quote_get,
-        "T0. Core Quote for one outcome at a stated size: price "
-        "+ all-in cost (fee truth) + liquidity flag + verbatim "
-        "criteria attached. A price, never a probability (5.5).",
-        {"instrument_id": {"type": "string"},
-         "size": {"type": "string"}, "outcome": {"type": "string"},
-         "as_of": {"type": "string"}},
+        "Price one outcome of one Polymarket Global market at a stated size: executable price, all-in cost including fees, a liquidity flag, and the market's verbatim resolution criteria attached. Use this for a size-aware price; use book_get for raw levels and market_get for criteria alone. The returned price is a venue price, never a probability estimate. Behaviour: read-only, fixture data only, no auth, no order is placed — this server has no trading tools. Returns {quote: <price, all-in cost, liquidity flag, criteria>, money_class: 'REAL'}.",
+        {"instrument_id": _P_INSTRUMENT,
+         "size": {"type": "string", "description": "Size to price, as a decimal string in the market's contract units, e.g. '100'. Required; the quote walks the book to this size, so larger sizes can change the price and liquidity flag."}, "outcome": _P_OUTCOME,
+         "as_of": _P_AS_OF},
         ["instrument_id", "size"]),
     "resolution_get": (
         t_resolution_get,
-        "T0. Resolution record: REPORTED | VERIFIED | DISPUTED "
-        "with the named source + evidence ref. Unverified is "
-        "data, not fact (spec 5.4).",
-        {"instrument_id": {"type": "string"}}, ["instrument_id"]),
+        "Fetch the resolution record for one Polymarket Global market: status REPORTED, VERIFIED, or DISPUTED, with the named resolution source and evidence reference. Use this to check whether and how a market settled; use market_get when you also need the criteria text and version history. An unverified or reported-only resolution is data, not settled fact. Behaviour: read-only, fixture data only, no auth. Returns {resolution: <status, source, evidence ref>, money_class: 'REAL'}; an unknown instrument_id fails with MARKET_NOT_FOUND.",
+        {"instrument_id": _P_INSTRUMENT}, ["instrument_id"]),
     "venue_status": (
         t_venue_status,
-        "T0. Adapter health: transport seam state, fee-schedule "
-        "freshness, and the standing fact us_trading_surface = "
-        "ABSENT.",
-        {"as_of": {"type": "string"}}, []),
+        "Report this Polymarket adapter's health: transport-seam state and fee-schedule freshness, plus the standing fact us_trading_surface = ABSENT. Use this to confirm what this build can and cannot do before relying on its data; it returns no market data — use market_list for that. Behaviour: read-only, no auth. Returns the venue status object extended with transport ('fixtures (Gamma/CLOB-shaped); live public reads not_tested in M0') and us_trading_surface: 'ABSENT'.",
+        {"as_of": _P_AS_OF}, []),
     "receipt_list": (
         t_receipt_list,
-        "T0. The shared suite ledger (hash-chained) as this "
-        "adapter sees it.",
-        {"limit": {"type": "integer"}}, []),
+        "List receipts from the shared Eclipse Book suite ledger (hash-chained) as this adapter sees it, with a chain-validity check. Use this to audit what the shared core state recorded across adapters; it is not market data — use market_list or book_get for that. Behaviour: read-only, no auth. Returns {receipts: [...], count: <total receipts in ledger>, chain_valid: <bool>, money_class: 'REAL'}; when limit is given, receipts holds only the most recent entries while count still reports the full total.",
+        {"limit": {"type": "integer", "description": "Optional maximum number of most-recent receipts to return, e.g. 10. Omit to return the entire ledger."}}, []),
 }
 
 # Capability denylist, stated in code (spec 8.2/12.1): the US
